@@ -558,6 +558,54 @@ fi
 
 rm -rf "$TEST_HOME"
 
+# --- Test 11c: Second confirmation before real changes ---
+echo ""
+echo "--- Second Confirmation ---"
+
+# dry-run should NOT show confirmation warning
+TEST_HOME="$(setup_test_home)"
+output="$(run_fix "$TEST_HOME" --dry-run --yes --lang en)"
+if echo "$output" | grep -q "WARNING.*modify your system"; then
+    fail "dry-run should not show confirmation warning"
+else
+    pass "dry-run skips confirmation"
+fi
+rm -rf "$TEST_HOME"
+
+# Non-dry-run without --yes: empty input (default N) should abort
+TEST_HOME="$(setup_test_home)"
+# First \n → module selection (default Y=all), second \n → confirmation (default N=abort)
+output="$(printf '\n\n' | HOME="$TEST_HOME" bash "$FIX_SCRIPT" --lang en 2>&1)" || true
+if echo "$output" | grep -q "WARNING.*modify your system"; then
+    pass "non-dry-run shows confirmation warning"
+else
+    fail "non-dry-run should show confirmation warning"
+fi
+if echo "$output" | grep -q "Aborted"; then
+    pass "default N aborts execution"
+else
+    fail "default N should abort execution"
+fi
+rm -rf "$TEST_HOME"
+
+# Non-dry-run with --yes should skip confirmation and complete
+TEST_HOME="$(setup_test_home)"
+STUB_DIR="$TEST_HOME/.test-stubs"
+mkdir -p "$STUB_DIR"
+has_cmd kubectl || create_path_stub "$STUB_DIR" "kubectl"
+output="$(PATH="$STUB_DIR:$PATH" HOME="$TEST_HOME" bash "$FIX_SCRIPT" --yes --modules 8 --lang en 2>&1)" || true
+if echo "$output" | grep -q "WARNING.*modify your system"; then
+    fail "--yes should skip confirmation"
+else
+    pass "--yes skips confirmation"
+fi
+if echo "$output" | grep -q "Script execution complete"; then
+    pass "--yes completes execution"
+else
+    fail "--yes should complete execution"
+fi
+rm -rf "$TEST_HOME"
+
 # --- Test 12: Chinese dry-run ---
 echo ""
 echo "--- Chinese Language ---"
