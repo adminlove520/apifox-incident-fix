@@ -635,7 +635,20 @@ scan_ssh_keys() {
             case "$basename" in
                 known_hosts*|config*|authorized_keys*|*.pub|*.bak|*.backup|compromised_backup*|*.old) continue ;;
             esac
-            if head -1 "$f" 2>/dev/null | grep -qE '^\-\-\-\-\-BEGIN .* PRIVATE KEY\-\-\-\-\-'; then
+            # Detect private keys by:
+            # 1. PEM header (OpenSSH, RSA, EC, ENCRYPTED, DSA, etc.)
+            # 2. OpenSSH binary format magic bytes ("openssh-key-v1")
+            # 3. Filename heuristic for common key names without extension
+            local is_key=false
+            if head -c 256 "$f" 2>/dev/null | grep -qE 'BEGIN .*(PRIVATE KEY|OPENSSH PRIVATE)'; then
+                is_key=true
+            elif head -c 32 "$f" 2>/dev/null | grep -q "openssh-key-v1"; then
+                is_key=true
+            elif [[ "$basename" =~ ^id_ ]] && [[ ! "$basename" =~ \. ]]; then
+                # Common pattern: id_rsa, id_ed25519, id_ecdsa (no extension = likely private key)
+                is_key=true
+            fi
+            if $is_key; then
                 keys+=("$f")
             fi
         done < <(find "$HOME/.ssh" -maxdepth 1 -type f -print0 2>/dev/null)
