@@ -17,7 +17,7 @@ On March 25, 2026, Apifox officially confirmed that their **public SaaS desktop 
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/myxiaoao/apifox-incident-fix/main/dist/fix.sh -o fix.sh
+curl -fsSL https://raw.githubusercontent.com/myxiaoao/apifox-incident-fix/master/dist/fix.sh -o fix.sh
 chmod +x fix.sh
 ./fix.sh
 ```
