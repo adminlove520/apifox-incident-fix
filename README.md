@@ -39,7 +39,7 @@ The tool automatically scans your system and guides you through credential rotat
 | 8 - .env Scan | Find .env, .key, .pem files in common development directories |
 | 9 - Audit | Guide anomalous activity review (GitHub security log, git history, K8s events) |
 
-**Important:** This tool only backs up and rotates credentials. It never deletes original files — backups are always created first.
+**Important:** For credential files (SSH keys, history), backups are always created before any modification. The tool may also terminate Apifox processes, add a blocking entry to `/etc/hosts` (requires sudo), and rewrite shell history files (after backup). Use `--dry-run` to preview all changes before executing.
 
 ## Supported Platforms
 
@@ -106,9 +106,9 @@ src/
 1. Create `src/modules/NN-name.sh` with a `run_module_NN()` function
 2. Add message definitions to `src/lib/i18n.sh`
 3. Add detection logic to `src/lib/detect.sh` (set `MODULE_APPLICABLE[N]`)
-4. Add `run_module_NN` call in `src/footer.sh`
+4. Add `run_module_NN` to the `mod_funcs` array in `src/footer.sh`
 5. Update `build.sh` FILES array
-6. Run `./build.sh`
+6. Run `./build.sh` and `./test.sh`
 
 ## References
 

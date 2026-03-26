@@ -39,7 +39,7 @@ chmod +x fix.sh
 | 8 - .env 扫描 | 在常见开发目录中查找 .env、.key、.pem 文件 |
 | 9 - 审计 | 引导检查异常活动（GitHub 安全日志、git 历史、K8s 事件） |
 
-**重要提示：** 本工具仅备份和轮换凭证，不会删除任何原始文件——操作前始终会先创建备份。
+**重要提示：** 对凭证文件（SSH 密钥、history 等），操作前始终会先创建备份。此外，工具还可能终止 Apifox 进程、向 `/etc/hosts` 添加屏蔽条目（需要 sudo）、以及重写 shell history 文件（备份后）。建议先用 `--dry-run` 预览所有变更再执行。
 
 ## 支持平台
 
@@ -106,9 +106,9 @@ src/
 1. 创建 `src/modules/NN-name.sh`，定义 `run_module_NN()` 函数
 2. 在 `src/lib/i18n.sh` 中添加消息定义
 3. 在 `src/lib/detect.sh` 中添加检测逻辑（设置 `MODULE_APPLICABLE[N]`）
-4. 在 `src/footer.sh` 中添加 `run_module_NN` 调用
+4. 在 `src/footer.sh` 的 `mod_funcs` 数组中添加 `run_module_NN`
 5. 更新 `build.sh` 的 FILES 数组
-6. 运行 `./build.sh`
+6. 运行 `./build.sh` 和 `./test.sh`
 
 ## 参考链接
 

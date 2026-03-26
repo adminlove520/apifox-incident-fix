@@ -465,6 +465,7 @@ prompt_module_selection() {
             ;;
         select|SELECT)
             read -r -p "$(msg SELECT_PROMPT) " SELECTED_MODULES
+            validate_selected_modules
             ;;
         *)
             # Run all applicable
