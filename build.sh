@@ -25,6 +25,7 @@ FILES=(
     "$SRC/modules/08-env-scan.sh"
     "$SRC/modules/09-audit.sh"
     "$SRC/modules/10-npm.sh"
+    "$SRC/modules/11-wincred.sh"
     "$SRC/footer.sh"
 )
 

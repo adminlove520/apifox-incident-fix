@@ -409,3 +409,34 @@ msg() {
     fi
     echo "$value"
 }
+
+# -- Module 11: Windows Credential Manager --
+MSG_MOD11_NAME_EN="Windows Credential Manager"
+MSG_MOD11_NAME_CN="Windows 凭证管理器"
+
+MSG_WINCRED_SEARCHING_EN="Searching Windows Credential Manager for apifox-related entries..."
+MSG_WINCRED_SEARCHING_CN="在 Windows 凭证管理器中搜索 apifox 相关条目..."
+
+MSG_WINCRED_FOUND_EN="Found apifox-related credential entries:"
+MSG_WINCRED_FOUND_CN="发现 apifox 相关凭证条目："
+
+MSG_WINCRED_NONE_EN="No apifox-related entries found in Windows Credential Manager"
+MSG_WINCRED_NONE_CN="Windows 凭证管理器中未找到 apifox 相关条目"
+
+MSG_WINCRED_REMOVE_HINT_EN="Review and remove suspicious entries:"
+MSG_WINCRED_REMOVE_HINT_CN="检查并删除可疑条目："
+
+MSG_WINCRED_GIT_CREDS_EN="Git credentials file found (may have been exfiltrated)"
+MSG_WINCRED_GIT_CREDS_CN="发现 Git 凭证文件（可能已被窃取）"
+
+MSG_WINCRED_MANUAL_EN="Open Windows Credential Manager (Control Panel > Credential Manager) to manually review stored credentials"
+MSG_WINCRED_MANUAL_CN="请打开 Windows 凭证管理器（控制面板 > 凭证管理器）手动检查存储的凭证"
+
+MSG_WINCRED_WINDOWS_ONLY_EN="Windows Credential Manager check is Windows-only"
+MSG_WINCRED_WINDOWS_ONLY_CN="Windows 凭证管理器检查仅适用于 Windows"
+
+MSG_SCAN_WINCRED_EN="Windows Credentials"
+MSG_SCAN_WINCRED_CN="Windows 凭证"
+
+MSG_FORENSICS_HOSTS_WIN_ADMIN_EN="Cannot write to hosts file - run as Administrator, or add manually:"
+MSG_FORENSICS_HOSTS_WIN_ADMIN_CN="无法写入 hosts 文件 - 请以管理员身份运行，或手动添加："

@@ -88,7 +88,7 @@ main() {
     fi
 
     # Execute only selected + applicable modules
-    local mod_funcs=(run_module_00 run_module_01 run_module_02 run_module_03 run_module_04 run_module_05 run_module_06 run_module_07 run_module_08 run_module_09 run_module_10)
+    local mod_funcs=(run_module_00 run_module_01 run_module_02 run_module_03 run_module_04 run_module_05 run_module_06 run_module_07 run_module_08 run_module_09 run_module_10 run_module_11)
     for i in "${!mod_funcs[@]}"; do
         if module_ran "$i"; then
             ${mod_funcs[$i]}

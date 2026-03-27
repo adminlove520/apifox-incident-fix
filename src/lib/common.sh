@@ -50,20 +50,20 @@ validate_selected_modules() {
     fi
     # Strip all whitespace
     SELECTED_MODULES="$(echo "$SELECTED_MODULES" | tr -d ' \t')"
-    # Validate each number is 0-9
+    # Validate each number is 0-11
     local any_valid=false
     IFS=',' read -ra nums <<< "$SELECTED_MODULES"
     for n in "${nums[@]}"; do
         [[ -z "$n" ]] && continue
-        if ! [[ "$n" =~ ^[0-9]+$ ]] || [[ "$n" -gt 10 ]]; then
-            echo "Error: invalid module number '$n' (valid: 0-10)" >&2
+        if ! [[ "$n" =~ ^[0-9]+$ ]] || [[ "$n" -gt 11 ]]; then
+            echo "Error: invalid module number '$n' (valid: 0-11)" >&2
             echo "Run with --help for usage information" >&2
             exit 1
         fi
         any_valid=true
     done
     if ! $any_valid; then
-        echo "Error: --modules requires at least one valid module number (0-10)" >&2
+        echo "Error: --modules requires at least one valid module number (0-11)" >&2
         exit 1
     fi
 }
@@ -104,9 +104,23 @@ Options:
   --extra-patterns P  Additional sensitive patterns for history cleanup
   --dry-run           Show what would be done without making changes
   --yes               Skip all confirmations (for CI/automation)
-  --modules 1,2,4     Only run specified modules
+  --modules 1,2,4     Only run specified modules (0-11)
   --no-color          Disable colored output
   --help, -h          Show this help message
+
+Modules:
+  0  Forensics & Hosts Block
+  1  Kill Apifox Process
+  2  Rotate SSH Keys
+  3  Clean Shell History (zsh/bash/fish/PowerShell)
+  4  Rotate GitHub Token
+  5  Rotate K8s Credentials
+  6  Rotate Docker Credentials
+  7  Check macOS Keychain          (macOS only)
+  8  Scan Sensitive Files
+  9  Audit Activity
+  10 Rotate npm Token
+  11 Windows Credential Manager    (Windows only)
 
 Announcement: $ANNOUNCEMENT_URL
 Security contact: $SECURITY_EMAIL

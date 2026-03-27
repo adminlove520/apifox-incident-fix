@@ -3,14 +3,23 @@
 # --- Platform Detection ---
 # OS_TYPE can be overridden via environment variable (useful for testing)
 if [[ -z "${OS_TYPE:-}" ]]; then
-    case "$(uname -s)" in
-        Darwin) OS_TYPE="macos" ;;
-        Linux)  OS_TYPE="linux" ;;
-        *)      OS_TYPE="unknown" ;;
+    case "$(uname -s 2>/dev/null || echo Windows_NT)" in
+        Darwin)             OS_TYPE="macos" ;;
+        Linux)              OS_TYPE="linux" ;;
+        MINGW*|MSYS*|CYGWIN*) OS_TYPE="windows" ;;
+        Windows_NT)         OS_TYPE="windows" ;;
+        *)
+            # Fallback: check for PowerShell / Windows env vars
+            if [[ -n "${WINDIR:-}" || -n "${SystemRoot:-}" ]]; then
+                OS_TYPE="windows"
+            else
+                OS_TYPE="unknown"
+            fi
+            ;;
     esac
 fi
 
-OS_VERSION="${OS_VERSION:-$(uname -sr)}"
+OS_VERSION="${OS_VERSION:-$(uname -sr 2>/dev/null || echo "Windows $(cmd /c ver 2>/dev/null | tail -1 || echo unknown)")}"
 
 # --- Tool Detection ---
 HAS_GH=false
@@ -20,8 +29,9 @@ HAS_PGREP=false
 HAS_SECURITY=false
 
 # --- Apifox Process Pattern ---
-# Matches: Apifox.app (macOS), Apifox Electron helpers (--type=), /opt/Apifox/apifox (Linux binary)
-# Uses [A] trick to exclude the grep/pgrep command itself from results
+# macOS:   Apifox.app helpers (--type=)
+# Linux:   /opt/Apifox/apifox binary
+# Windows: Apifox.exe (handled separately via tasklist in PowerShell)
 APIFOX_PROC_PATTERN='[A]pifox\.app|[A]pifox.*--type=|/[Aa]pifox/[Aa]pifox'
 
 command -v gh       &>/dev/null && HAS_GH=true
@@ -34,6 +44,16 @@ command -v security &>/dev/null && HAS_SECURITY=true
 get_apifox_data_dir() {
     if [[ "$OS_TYPE" == "macos" ]]; then
         echo "$HOME/Library/Application Support/apifox"
+    elif [[ "$OS_TYPE" == "windows" ]]; then
+        # Git Bash / MSYS2: $APPDATA is typically set
+        local appdata="${APPDATA:-$HOME/AppData/Roaming}"
+        if [[ -d "$appdata/apifox" ]]; then
+            echo "$appdata/apifox"
+        elif [[ -d "$appdata/Apifox" ]]; then
+            echo "$appdata/Apifox"
+        else
+            echo ""
+        fi
     else
         if [[ -d "$HOME/.config/apifox" ]]; then
             echo "$HOME/.config/apifox"
@@ -57,8 +77,15 @@ get_apifox_version() {
     local app_paths=()
     if [[ "$OS_TYPE" == "macos" ]]; then
         app_paths+=("/Applications/Apifox.app/Contents/Resources/app/package.json")
+    elif [[ "$OS_TYPE" == "windows" ]]; then
+        local localappdata="${LOCALAPPDATA:-$HOME/AppData/Local}"
+        app_paths+=(
+            "$localappdata/Programs/Apifox/resources/app/package.json"
+            "$localappdata/Apifox/resources/app/package.json"
+            "C:/Program Files/Apifox/resources/app/package.json"
+            "C:/Program Files (x86)/Apifox/resources/app/package.json"
+        )
     else
-        # Linux: check common install locations
         app_paths+=(
             "/opt/Apifox/resources/app/package.json"
             "/opt/apifox/resources/app/package.json"
@@ -66,7 +93,6 @@ get_apifox_version() {
             "/usr/lib/apifox/resources/app/package.json"
             "/usr/share/apifox/resources/app/package.json"
         )
-        # Also check snap and flatpak
         local snap_path
         snap_path="$(find /snap/apifox -name "package.json" -path "*/resources/app/*" 2>/dev/null | head -1)"
         [[ -n "$snap_path" ]] && app_paths+=("$snap_path")
@@ -91,17 +117,12 @@ scan_ssh_keys() {
             case "$basename" in
                 known_hosts*|config*|authorized_keys*|*.pub|*.bak|*.backup|compromised_backup*|*.old) continue ;;
             esac
-            # Detect private keys by:
-            # 1. PEM header (OpenSSH, RSA, EC, ENCRYPTED, DSA, etc.)
-            # 2. OpenSSH binary format magic bytes ("openssh-key-v1")
-            # 3. Filename heuristic for common key names without extension
             local is_key=false
             if head -c 256 "$f" 2>/dev/null | grep -qE 'BEGIN .*(PRIVATE KEY|OPENSSH PRIVATE)'; then
                 is_key=true
             elif head -c 32 "$f" 2>/dev/null | grep -q "openssh-key-v1"; then
                 is_key=true
             elif [[ "$basename" =~ ^id_ ]] && [[ ! "$basename" =~ \. ]]; then
-                # Common pattern: id_rsa, id_ed25519, id_ecdsa (no extension = likely private key)
                 is_key=true
             fi
             if $is_key; then
@@ -133,6 +154,17 @@ scan_history_files() {
     [[ -f "$HOME/.zsh_history" ]]   && files+=("$HOME/.zsh_history")
     [[ -f "$HOME/.bash_history" ]]  && files+=("$HOME/.bash_history")
     [[ -f "$HOME/.local/share/fish/fish_history" ]] && files+=("$HOME/.local/share/fish/fish_history")
+
+    # PowerShell history on Windows / cross-platform
+    local ps_history=""
+    if [[ "$OS_TYPE" == "windows" ]]; then
+        local appdata="${APPDATA:-$HOME/AppData/Roaming}"
+        ps_history="$appdata/Microsoft/Windows/PowerShell/PSReadLine/ConsoleHost_history.txt"
+    else
+        ps_history="$HOME/.local/share/powershell/PSReadLine/ConsoleHost_history.txt"
+    fi
+    [[ -f "$ps_history" ]] && files+=("$ps_history")
+
     if [[ ${#files[@]} -gt 0 ]]; then
         printf '%s\n' "${files[@]}"
     fi
@@ -156,100 +188,57 @@ has_sensitive_history() {
 
 # --- Docker Registry Scan ---
 scan_docker_registries() {
-    local config="$HOME/.docker/config.json"
+    local config
+    if [[ "$OS_TYPE" == "windows" ]]; then
+        local appdata="${APPDATA:-$HOME/AppData/Roaming}"
+        config="$appdata/.docker/config.json"
+        # Also try standard Docker Desktop path
+        [[ ! -f "$config" ]] && config="$HOME/.docker/config.json"
+    else
+        config="$HOME/.docker/config.json"
+    fi
+
     if [[ ! -f "$config" ]]; then
         return
     fi
-    # Extract registry keys directly under "auths" with a small JSON-aware scanner.
-    # This avoids false negatives on pretty-printed configs and false positives on nested fields.
     awk '
         BEGIN {
-            depth = 0
-            in_auths = 0
-            auths_depth = 0
-            in_string = 0
-            escaped = 0
-            token = ""
-            last_string = ""
-            pending_registry = ""
-            expect_auths_object = 0
+            depth = 0; in_auths = 0; auths_depth = 0
+            in_string = 0; escaped = 0; token = ""
+            last_string = ""; pending_registry = ""; expect_auths_object = 0
         }
         {
             line = $0 "\n"
             for (i = 1; i <= length(line); i++) {
                 c = substr(line, i, 1)
-
                 if (in_string) {
-                    if (escaped) {
-                        token = token c
-                        escaped = 0
-                        continue
-                    }
-                    if (c == "\\") {
-                        token = token c
-                        escaped = 1
-                        continue
-                    }
-                    if (c == "\"") {
-                        in_string = 0
-                        last_string = token
-                        token = ""
-                    } else {
-                        token = token c
-                    }
+                    if (escaped) { token = token c; escaped = 0; continue }
+                    if (c == "\\") { token = token c; escaped = 1; continue }
+                    if (c == "\"") { in_string = 0; last_string = token; token = "" }
+                    else { token = token c }
                     continue
                 }
-
-                if (c == "\"") {
-                    in_string = 1
-                    token = ""
-                    continue
-                }
-
-                if (c ~ /[[:space:]]/) {
-                    continue
-                }
-
+                if (c == "\"") { in_string = 1; token = ""; continue }
+                if (c ~ /[[:space:]]/) { continue }
                 if (c == ":") {
-                    if (!in_auths && depth == 1 && last_string == "auths") {
-                        expect_auths_object = 1
-                    } else if (in_auths && depth == auths_depth && last_string != "") {
-                        pending_registry = last_string
-                    }
-                    last_string = ""
-                    continue
+                    if (!in_auths && depth == 1 && last_string == "auths") { expect_auths_object = 1 }
+                    else if (in_auths && depth == auths_depth && last_string != "") { pending_registry = last_string }
+                    last_string = ""; continue
                 }
-
                 if (c == "{") {
                     depth++
-                    if (expect_auths_object) {
-                        in_auths = 1
-                        auths_depth = depth
-                        expect_auths_object = 0
-                    } else if (in_auths && pending_registry != "" && depth == auths_depth + 1) {
-                        if (pending_registry ~ /[.\/:]/) {
-                            print pending_registry
-                        }
+                    if (expect_auths_object) { in_auths = 1; auths_depth = depth; expect_auths_object = 0 }
+                    else if (in_auths && pending_registry != "" && depth == auths_depth + 1) {
+                        if (pending_registry ~ /[.\/:]/){ print pending_registry }
                         pending_registry = ""
                     }
                     continue
                 }
-
                 if (c == "}") {
-                    if (in_auths && depth == auths_depth) {
-                        in_auths = 0
-                        auths_depth = 0
-                    }
-                    depth--
-                    pending_registry = ""
-                    last_string = ""
-                    continue
+                    if (in_auths && depth == auths_depth) { in_auths = 0; auths_depth = 0 }
+                    depth--; pending_registry = ""; last_string = ""; continue
                 }
-
-                if (c == ",") {
-                    pending_registry = ""
-                    last_string = ""
-                }
+                if (c == ",") { pending_registry = ""; last_string = "" }
             }
         }
     ' "$config"
@@ -257,7 +246,22 @@ scan_docker_registries() {
 
 # --- .env File Scan ---
 scan_env_files() {
-    local dirs=("$HOME/Projects" "$HOME/Code" "$HOME/Work" "$HOME/Desktop" "$HOME/code" "$HOME/projects" "$HOME/dev" "$HOME/Developer" "$HOME/src")
+    local dirs=()
+
+    if [[ "$OS_TYPE" == "windows" ]]; then
+        local userprofile="${USERPROFILE:-$HOME}"
+        dirs=(
+            "$userprofile/Projects" "$userprofile/Code" "$userprofile/Work"
+            "$userprofile/Desktop" "$userprofile/Documents"
+            "$userprofile/code" "$userprofile/projects" "$userprofile/dev" "$userprofile/src"
+        )
+    else
+        dirs=(
+            "$HOME/Projects" "$HOME/Code" "$HOME/Work"
+            "$HOME/Desktop" "$HOME/code" "$HOME/projects"
+            "$HOME/dev" "$HOME/Developer" "$HOME/src"
+        )
+    fi
 
     if [[ -n "${SCAN_DIRS:-}" ]]; then
         IFS=',' read -ra EXTRA_DIRS <<< "$SCAN_DIRS"
@@ -278,19 +282,32 @@ scan_env_files() {
         2>/dev/null || true
 }
 
-# --- Hosts Check ---
-# Matches 127.0.0.1, 0.0.0.0, ::1 with optional trailing comments
-is_c2_blocked() {
-    grep -qE "^[[:space:]]*(127\.0\.0\.1|0\.0\.0\.0|::1)[[:space:]]+([^#]*[[:space:]]+)*${C2_DOMAIN}([[:space:]]|$)" /etc/hosts 2>/dev/null
+# --- Hosts File Path ---
+get_hosts_file() {
+    if [[ "$OS_TYPE" == "windows" ]]; then
+        local sysroot="${SystemRoot:-C:\\Windows}"
+        # In Git Bash, backslashes need to be converted
+        echo "$sysroot/System32/drivers/etc/hosts" | tr '\\' '/'
+    else
+        echo "/etc/hosts"
+    fi
 }
 
-# Check how many C2 domains are blocked
+# --- Hosts Check ---
+is_c2_blocked() {
+    local hosts_file
+    hosts_file="$(get_hosts_file)"
+    grep -qE "^[[:space:]]*(127\.0\.0\.1|0\.0\.0\.0|::1)[[:space:]]+([^#]*[[:space:]]+)*${C2_DOMAIN}([[:space:]]|$)" "$hosts_file" 2>/dev/null
+}
+
 count_blocked_c2_domains() {
     local blocked=0
+    local hosts_file
+    hosts_file="$(get_hosts_file)"
     for domain in "${C2_DOMAINS[@]}"; do
         local escaped_domain
         escaped_domain="$(echo "$domain" | sed 's/\./\\./g')"
-        if grep -qE "^[[:space:]]*(127\.0\.0\.1|0\.0\.0\.0|::1)[[:space:]]+([^#]*[[:space:]]+)*${escaped_domain}([[:space:]]|$)" /etc/hosts 2>/dev/null; then
+        if grep -qE "^[[:space:]]*(127\.0\.0\.1|0\.0\.0\.0|::1)[[:space:]]+([^#]*[[:space:]]+)*${escaped_domain}([[:space:]]|$)" "$hosts_file" 2>/dev/null; then
             ((blocked++))
         fi
     done
@@ -298,10 +315,12 @@ count_blocked_c2_domains() {
 }
 
 get_unblocked_c2_domains() {
+    local hosts_file
+    hosts_file="$(get_hosts_file)"
     for domain in "${C2_DOMAINS[@]}"; do
         local escaped_domain
         escaped_domain="$(echo "$domain" | sed 's/\./\\./g')"
-        if ! grep -qE "^[[:space:]]*(127\.0\.0\.1|0\.0\.0\.0|::1)[[:space:]]+([^#]*[[:space:]]+)*${escaped_domain}([[:space:]]|$)" /etc/hosts 2>/dev/null; then
+        if ! grep -qE "^[[:space:]]*(127\.0\.0\.1|0\.0\.0\.0|::1)[[:space:]]+([^#]*[[:space:]]+)*${escaped_domain}([[:space:]]|$)" "$hosts_file" 2>/dev/null; then
             echo "$domain"
         fi
     done
@@ -309,7 +328,7 @@ get_unblocked_c2_domains() {
 
 # --- Module Applicability Array ---
 declare -a MODULE_APPLICABLE
-for i in {0..10}; do
+for i in {0..11}; do
     MODULE_APPLICABLE[$i]=true
 done
 
@@ -323,11 +342,17 @@ run_system_scan() {
     # Platform
     printf "  %-20s %s\n" "$(msg SCAN_PLATFORM):" "$OS_VERSION"
 
-    # Apifox process — match Apifox.app or Apifox binary, exclude this script and grep
+    # Apifox process
     local apifox_pids=""
-    if $HAS_PGREP; then
+    if [[ "$OS_TYPE" == "windows" ]]; then
+        # In Git Bash on Windows, use tasklist
+        if command -v tasklist &>/dev/null; then
+            apifox_pids="$(tasklist 2>/dev/null | grep -i "Apifox.exe" | awk '{print $2}' | tr '\n' ' ' || true)"
+        fi
+    elif $HAS_PGREP; then
         apifox_pids="$(pgrep -f "$APIFOX_PROC_PATTERN" 2>/dev/null || true)"
     fi
+
     if [[ -n "$apifox_pids" ]]; then
         printf "  %-20s ${RED}%s (PID: %s)${NC}\n" "$(msg SCAN_APIFOX_PROC):" "$(msg SCAN_RUNNING)" "$(echo "$apifox_pids" | tr '\n' ',' | sed 's/,$//')"
         MODULE_APPLICABLE[1]=true
@@ -363,7 +388,7 @@ run_system_scan() {
         fi
     fi
 
-    # Hosts block — check all C2 domains
+    # Hosts block
     local blocked_count
     blocked_count="$(count_blocked_c2_domains)"
     local total_c2="${#C2_DOMAINS[@]}"
@@ -381,9 +406,7 @@ run_system_scan() {
     # SSH
     SSH_KEYS="$(scan_ssh_keys)"
     local ssh_count=0
-    if [[ -n "$SSH_KEYS" ]]; then
-        ssh_count="$(echo "$SSH_KEYS" | wc -l | tr -d ' ')"
-    fi
+    [[ -n "$SSH_KEYS" ]] && ssh_count="$(echo "$SSH_KEYS" | wc -l | tr -d ' ')"
     if [[ "$ssh_count" -gt 0 ]]; then
         local ssh_names
         ssh_names="$(echo "$SSH_KEYS" | xargs -I{} basename {} | tr '\n' ', ' | sed 's/,$//')"
@@ -424,9 +447,7 @@ run_system_scan() {
     # Docker
     DOCKER_REGISTRIES="$(scan_docker_registries)"
     local docker_count=0
-    if [[ -n "$DOCKER_REGISTRIES" ]]; then
-        docker_count="$(echo "$DOCKER_REGISTRIES" | wc -l | tr -d ' ')"
-    fi
+    [[ -n "$DOCKER_REGISTRIES" ]] && docker_count="$(echo "$DOCKER_REGISTRIES" | wc -l | tr -d ' ')"
     if [[ "$docker_count" -gt 0 ]]; then
         printf "    %-18s %d registries\n" "$(msg SCAN_DOCKER):" "$docker_count"
         MODULE_APPLICABLE[6]=true
@@ -444,7 +465,7 @@ run_system_scan() {
         MODULE_APPLICABLE[3]=false
     fi
 
-    # npmrc — match _authToken= lines, excluding comments (# or ;)
+    # npmrc
     if [[ -f "$HOME/.npmrc" ]]; then
         if grep -vE '^[[:space:]]*[#;]' "$HOME/.npmrc" 2>/dev/null | grep -qE '_authToken=' 2>/dev/null; then
             printf "    %-18s ${YELLOW}%s${NC}\n" "npm:" "$(msg SCAN_NPMRC_TOKEN)"
@@ -458,7 +479,7 @@ run_system_scan() {
         MODULE_APPLICABLE[10]=false
     fi
 
-    # Subversion credentials
+    # Subversion
     if [[ -d "$HOME/.subversion" ]]; then
         printf "    %-18s %s\n" "Subversion:" "~/.subversion/ $(msg SCAN_SVN_FOUND)"
     fi
@@ -466,12 +487,10 @@ run_system_scan() {
     # .env files
     ENV_FILES="$(scan_env_files)"
     local env_count=0
-    if [[ -n "$ENV_FILES" ]]; then
-        env_count="$(echo "$ENV_FILES" | wc -l | tr -d ' ')"
-    fi
-    # Extra sensitive files that may have been exfiltrated
+    [[ -n "$ENV_FILES" ]] && env_count="$(echo "$ENV_FILES" | wc -l | tr -d ' ')"
     HAS_EXTRA_SENSITIVE=false
-    for ef in "$HOME/.git-credentials" "$HOME/.npmrc" "$HOME/.zshrc"; do
+    local extra_check_files=("$HOME/.git-credentials" "$HOME/.npmrc" "$HOME/.zshrc")
+    for ef in "${extra_check_files[@]}"; do
         [[ -f "$ef" ]] && HAS_EXTRA_SENSITIVE=true && break
     done
     [[ -d "$HOME/.subversion" ]] && HAS_EXTRA_SENSITIVE=true
@@ -486,21 +505,27 @@ run_system_scan() {
         MODULE_APPLICABLE[8]=false
     fi
 
-    # Module 0 (forensics) always applicable
+    # Windows Credential Manager (module 11)
+    if [[ "$OS_TYPE" == "windows" ]]; then
+        MODULE_APPLICABLE[11]=true
+        printf "    %-18s %s\n" "Windows Cred:" "$(msg SCAN_WINCRED)"
+    else
+        MODULE_APPLICABLE[11]=false
+    fi
+
+    # Module 0 always applicable; Module 7 macOS-only; Module 9 always
     MODULE_APPLICABLE[0]=true
-    # Module 7 (keychain) only on macOS
     if [[ "$OS_TYPE" == "macos" ]]; then
         MODULE_APPLICABLE[7]=true
     else
         MODULE_APPLICABLE[7]=false
     fi
-    # Module 9 (audit) always applicable
     MODULE_APPLICABLE[9]=true
 
     # Module summary
     echo ""
     printf "  ${BOLD}%s:${NC}\n" "$(msg SCAN_MODULES_TITLE)"
-    local mod_names=("MOD0_NAME" "MOD1_NAME" "MOD2_NAME" "MOD3_NAME" "MOD4_NAME" "MOD5_NAME" "MOD6_NAME" "MOD7_NAME" "MOD8_NAME" "MOD9_NAME" "MOD10_NAME")
+    local mod_names=("MOD0_NAME" "MOD1_NAME" "MOD2_NAME" "MOD3_NAME" "MOD4_NAME" "MOD5_NAME" "MOD6_NAME" "MOD7_NAME" "MOD8_NAME" "MOD9_NAME" "MOD10_NAME" "MOD11_NAME")
     for i in "${!mod_names[@]}"; do
         local status_icon status_text
         if ${MODULE_APPLICABLE[$i]}; then

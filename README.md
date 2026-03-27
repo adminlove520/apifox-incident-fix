@@ -19,8 +19,25 @@ Due to the application not strictly enabling Electron's sandbox security paramet
 
 ## Quick Start
 
+**macOS / Linux:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/myxiaoao/apifox-incident-fix/master/dist/fix.sh -o fix.sh
+curl -fsSL https://raw.githubusercontent.com/adminlove520/apifox-incident-fix/main/dist/fix.sh -o fix.sh
+chmod +x fix.sh
+./fix.sh
+```
+
+**Windows (PowerShell — recommended):**
+```powershell
+# Run PowerShell as Administrator for full functionality (hosts file modification)
+irm https://raw.githubusercontent.com/adminlove520/apifox-incident-fix/main/fix.ps1 -OutFile fix.ps1
+.\fix.ps1
+```
+
+> **Note:** On Windows, run PowerShell as Administrator to allow automatic modification of the hosts file.
+
+**Windows (Git Bash / MSYS2):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/adminlove520/apifox-incident-fix/main/dist/fix.sh -o fix.sh
 chmod +x fix.sh
 ./fix.sh
 ```
@@ -42,13 +59,18 @@ The tool automatically scans your system and guides you through credential rotat
 | 8 - .env Scan | Find .env, .key, .pem files and check additional exfiltrated files (.git-credentials, .npmrc, .zshrc, .subversion/) |
 | 9 - Audit | Guide anomalous activity review (GitHub security log, git history, K8s events, SSH login logs, network traffic to C2 domains) |
 | 10 - npm Token | Backup ~/.npmrc and guide npm token rotation |
+| 11 - Windows Credential Manager | Search and remove apifox-related entries from Windows Credential Manager **(Windows only)** |
 
 **Important:** For credential files (SSH keys, history, npmrc), backups are always created before any modification. The tool may also terminate Apifox processes, add blocking entries for all known malicious domains to `/etc/hosts` (requires sudo), and rewrite shell history files (after backup). Use `--dry-run` to preview all changes before executing.
 
 ## Supported Platforms
 
-- macOS (Intel / Apple Silicon)
-- Linux (Debian/Ubuntu, RHEL/CentOS, Arch)
+| Platform | Script | Notes |
+|----------|--------|-------|
+| macOS (Intel / Apple Silicon) | `fix.sh` | Full support, incl. Keychain |
+| Linux (Debian/Ubuntu, RHEL/CentOS, Arch) | `fix.sh` | Full support |
+| **Windows 10/11** | **`fix.ps1`** | PowerShell 5.1+, incl. Credential Manager |
+| Windows (Git Bash / MSYS2) | `fix.sh` | Partial support via bash emulation |
 
 ## Command Line Options
 
@@ -81,7 +103,7 @@ The tool will print a personalized checklist at the end. Common manual steps inc
 
 ## How It Works
 
-1. **System Scan** — Detects platform (macOS/Linux), installed tools, existing credentials, and Apifox traces
+1. **System Scan** — Detects platform (macOS/Linux/Windows), installed tools, existing credentials, and Apifox traces
 2. **Diagnostic Report** — Displays findings and marks which modules are applicable
 3. **Module Selection** — Run all applicable modules, or select specific ones
 4. **Guided Execution** — Each module prompts for confirmation before making changes

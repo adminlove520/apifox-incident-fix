@@ -8,9 +8,15 @@ run_module_01() {
         return
     fi
 
-    # Use same precise pattern as detection in detect.sh
-    local pids
-    pids="$(pgrep -f "$APIFOX_PROC_PATTERN" 2>/dev/null || true)"
+    local pids=""
+    if [[ "$OS_TYPE" == "windows" ]]; then
+        # Use tasklist on Windows (Git Bash)
+        if command -v tasklist &>/dev/null; then
+            pids="$(tasklist 2>/dev/null | grep -i "Apifox.exe" | awk '{print $2}' | tr '\n' ' ' | sed 's/ $//' || true)"
+        fi
+    elif $HAS_PGREP; then
+        pids="$(pgrep -f "$APIFOX_PROC_PATTERN" 2>/dev/null || true)"
+    fi
 
     if [[ -z "$pids" ]]; then
         log "$(msg KILL_NONE)"
@@ -18,7 +24,11 @@ run_module_01() {
     fi
 
     warn "$(msg KILL_FOUND)"
-    ps -p "$(echo "$pids" | tr '\n' ',' | sed 's/,$//')" -o pid,comm 2>/dev/null || true
+    if [[ "$OS_TYPE" == "windows" ]]; then
+        tasklist 2>/dev/null | grep -i "Apifox.exe" | tee -a "$LOG_FILE" || true
+    else
+        ps -p "$(echo "$pids" | tr '\n' ',' | sed 's/,$//')" -o pid,comm 2>/dev/null | tee -a "$LOG_FILE" || true
+    fi
 
     if ! pause; then return; fi
 
@@ -27,23 +37,26 @@ run_module_01() {
         return
     fi
 
-    # Kill by exact PIDs instead of pattern to avoid collateral
-    while IFS= read -r pid; do
-        [[ -z "$pid" ]] && continue
-        kill "$pid" 2>/dev/null || true
-    done <<< "$pids"
-
-    sleep 1
-
-    # Check if any survived, force kill by PID
-    local remaining
-    remaining="$(pgrep -f "$APIFOX_PROC_PATTERN" 2>/dev/null || true)"
-    if [[ -n "$remaining" ]]; then
-        warn "$(msg KILL_FORCE)"
+    if [[ "$OS_TYPE" == "windows" ]]; then
+        taskkill /F /IM "Apifox.exe" 2>/dev/null || true
+    else
         while IFS= read -r pid; do
             [[ -z "$pid" ]] && continue
-            kill -9 "$pid" 2>/dev/null || true
-        done <<< "$remaining"
+            kill "$pid" 2>/dev/null || true
+        done <<< "$pids"
+
+        sleep 1
+
+        local remaining
+        remaining="$(pgrep -f "$APIFOX_PROC_PATTERN" 2>/dev/null || true)"
+        if [[ -n "$remaining" ]]; then
+            warn "$(msg KILL_FORCE)"
+            while IFS= read -r pid; do
+                [[ -z "$pid" ]] && continue
+                kill -9 "$pid" 2>/dev/null || true
+            done <<< "$remaining"
+        fi
     fi
+
     log "$(msg KILL_DONE)"
 }

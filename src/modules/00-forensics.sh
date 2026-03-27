@@ -31,13 +31,16 @@ run_module_00() {
     # --- Hosts Block (all malicious domains) ---
     local unblocked_domains
     unblocked_domains="$(get_unblocked_c2_domains)"
+    local hosts_file
+    hosts_file="$(get_hosts_file)"
+
     if [[ -z "$unblocked_domains" ]]; then
         log "$(msg FORENSICS_HOSTS_EXISTS)"
     else
         local unblocked_count
         unblocked_count="$(echo "$unblocked_domains" | wc -l | tr -d ' ')"
         if [[ "$DRY_RUN" == true ]]; then
-            info "$(msg DRY_RUN_PREFIX): add ${unblocked_count} malicious domains to /etc/hosts"
+            info "$(msg DRY_RUN_PREFIX): add ${unblocked_count} malicious domains to $hosts_file"
             echo "$unblocked_domains" | while IFS= read -r d; do
                 info "  127.0.0.1 $d"
             done
@@ -54,10 +57,25 @@ run_module_00() {
             case "${answer:-Y}" in
                 n|N) warn "$(msg SKIPPED)" ;;
                 *)
-                    echo "$unblocked_domains" | while IFS= read -r d; do
-                        [[ -z "$d" ]] && continue
-                        echo "127.0.0.1 $d" | sudo tee -a /etc/hosts > /dev/null
-                    done
+                    if [[ "$OS_TYPE" == "windows" ]]; then
+                        # On Windows (Git Bash), writing to hosts requires elevated privileges
+                        # Try direct write; if it fails, instruct user
+                        local hosts_content=""
+                        echo "$unblocked_domains" | while IFS= read -r d; do
+                            [[ -z "$d" ]] && continue
+                            if echo "127.0.0.1 $d" >> "$hosts_file" 2>/dev/null; then
+                                true
+                            else
+                                warn "$(msg FORENSICS_HOSTS_WIN_ADMIN)"
+                                warn "  127.0.0.1 $d"
+                            fi
+                        done
+                    else
+                        echo "$unblocked_domains" | while IFS= read -r d; do
+                            [[ -z "$d" ]] && continue
+                            echo "127.0.0.1 $d" | sudo tee -a "$hosts_file" > /dev/null
+                        done
+                    fi
                     log "$(msg FORENSICS_HOSTS_ADDED)"
                     ;;
             esac
